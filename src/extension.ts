@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { OpenCodeService } from "./OpenCodeService";
 import { OpenCodeViewProvider } from "./OpenCodeViewProvider";
 import type { HostMessage } from "./shared/messages";
+import { LOCAL_SERVICE_URL, readOpenCodeService } from "./webapp";
 
 let logger: vscode.LogOutputChannel;
 
@@ -23,15 +24,12 @@ export async function activate(context: vscode.ExtensionContext) {
   // Create OpenCode service
   const openCodeService = new OpenCodeService();
 
-  // Initialize OpenCode with workspace root
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-
-  try {
-    await openCodeService.initialize(workspaceRoot);
-    logger.info("OpenCode service initialized successfully");
-  } catch (error) {
-    logger.error("Failed to initialize OpenCode service", error);
-  }
+  // The webview embeds the running `opencode` web app instead of the bundled
+  // client, so the extension no longer spawns its own server.
+  logger.info("Embedding the running OpenCode web app", {
+    url: readOpenCodeService()?.base ?? LOCAL_SERVICE_URL,
+    workspaceFolder: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+  });
 
   const provider = new OpenCodeViewProvider(
     context.extensionUri,

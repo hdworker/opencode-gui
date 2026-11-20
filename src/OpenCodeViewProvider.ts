@@ -15,16 +15,9 @@ import {
   SseEvent,
   SseLogger,
 } from "./transport/SseClient";
+import { openCodeWebAppUrl } from "./webapp";
 
 const LAST_AGENT_KEY = "opencode.lastUsedAgent";
-
-interface DevServerConfig {
-  origin: string;
-  port: number;
-  viteClientUrl: string;
-  mainEntryUrl: string;
-  wsOrigin: string;
-}
 
 export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "opencode.chatView";
@@ -40,22 +33,13 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     private readonly _globalState: vscode.Memento,
   ) {}
 
-  public resolveWebviewView(
+  public async resolveWebviewView(
     webviewView: vscode.WebviewView,
     context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken,
   ) {
     const logger = getLogger();
     logger.info("resolveWebviewView called");
-    const devServerConfig = this._getDevServerConfig();
-    if (devServerConfig) {
-      logger.info("[ViewProvider] Using dev server for webview", {
-        origin: devServerConfig.origin,
-        port: devServerConfig.port,
-        viteClientUrl: devServerConfig.viteClientUrl,
-        mainEntryUrl: devServerConfig.mainEntryUrl,
-      });
-    }
 
     this._view = webviewView;
     this._webviewReady = false;
@@ -63,12 +47,9 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, "out")],
-      portMapping: devServerConfig
-        ? [{ webviewPort: devServerConfig.port, extensionHostPort: devServerConfig.port }]
-        : [],
     };
 
-    const html = this._getHtmlForWebview(webviewView.webview, devServerConfig);
+    const html = await this._getHtmlForWebview();
     logger.info("Generated webview HTML length:", html.length);
     webviewView.webview.html = html;
 
@@ -573,89 +554,24 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private _getDevServerConfig(): DevServerConfig | null {
-    const raw = process.env.OPENCODE_DEV_SERVER_URL?.trim();
-    if (!raw) return null;
-
-    try {
-      const parsed = new URL(raw);
-      const originRoot = `${parsed.origin}/`;
-      const viteClientUrl = new URL("/@vite/client", originRoot).toString();
-      const mainEntryUrl = new URL("/src/webview/main.tsx", originRoot).toString();
-
-      const wsUrl = new URL(originRoot);
-      wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
-
-      const port =
-        parsed.port.length > 0
-          ? Number(parsed.port)
-          : parsed.protocol === "https:"
-            ? 443
-            : 80;
-
-      return {
-        origin: parsed.origin,
-        port,
-        viteClientUrl,
-        mainEntryUrl,
-        wsOrigin: wsUrl.origin,
-      };
-    } catch {
-      getLogger().warn("[ViewProvider] Invalid OPENCODE_DEV_SERVER_URL; falling back to bundled webview");
-      return null;
-    }
-  }
-
-  private _getHtmlForWebview(webview: vscode.Webview, devServerConfig: DevServerConfig | null) {
-    if (devServerConfig) {
-      return `<!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${devServerConfig.origin}; script-src 'unsafe-inline' ${devServerConfig.origin}; connect-src ${devServerConfig.origin} ${devServerConfig.wsOrigin} http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:* ${webview.cspSource};">
-          <title>OpenCode</title>
-        </head>
-        <body>
-          <div id="root"></div>
-          <script type="module" src="${devServerConfig.viteClientUrl}"></script>
-          <script type="module" src="${devServerConfig.mainEntryUrl}"></script>
-        </body>
-        </html>`;
-    }
-
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, "out", "main.js"),
+  private async _getHtmlForWebview() {
+    const url = await openCodeWebAppUrl(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     );
-    const styleUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, "out", "App.css"),
-    );
-
-    const nonce = getNonce();
+    const origin = new URL(url).origin;
 
     return `<!DOCTYPE html>
       <html lang="en">
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:* ${webview.cspSource};">
-        <link href="${styleUri}" rel="stylesheet">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; frame-src ${origin};">
         <title>OpenCode</title>
+        <style>html,body{margin:0;padding:0;height:100%;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0}</style>
       </head>
       <body>
-        <div id="root"></div>
-        <script type="module" nonce="${nonce}" src="${scriptUri}"></script>
+        <iframe src="${url}" allow="clipboard-read; clipboard-write; microphone; camera"></iframe>
       </body>
       </html>`;
   }
-}
-
-function getNonce() {
-  let text = "";
-  const possible =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  for (let i = 0; i < 32; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
-  }
-  return text;
 }

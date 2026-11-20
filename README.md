@@ -4,6 +4,8 @@
 
 A VSCode sidebar extension for OpenCode - the AI coding agent. Simple chat interface to interact with OpenCode directly from your sidebar.
 
+This fork embeds the web UI of the running `opencode` service instead of bundling its own chat client, so sessions, models and permissions are the real app's. The panel opens the newest session of the workspace folder that is open in the explorer.
+
 ![OpenCode VSCode Extension Preview](media/preview.png)
 
 > **Note**: This is an independent community project and is not officially affiliated with or maintained by the OpenCode team.
